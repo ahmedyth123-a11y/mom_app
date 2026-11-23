@@ -1,0 +1,11 @@
+# Generated in CI by `flutter create`; our Android changes live in android_overrides/.
+/android/
+/build/
+/test/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.metadata
+.idea/
+*.iml
+pubspec.lock

@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Basic protection: any signed-in (anonymous) app user who knows the
+    // 6-digit family code can read/write that family's data.
+    match /families/{code}/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
