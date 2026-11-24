@@ -18,12 +18,13 @@ import 'sync.dart';
 
 class _AlarmJob {
   _AlarmJob(this.id, this.at, this.sound, this.title, this.body, this.payload,
-      {this.loop = false,
+      {required this.cap,
+      this.loop = false,
       this.volume = 0.9,
       this.fadeSeconds = 0,
       this.vibrate = true,
       this.fullScreen = true,
-      this.stopAt});
+      this.instead});
 
   final int id;
   final DateTime at;
@@ -41,8 +42,15 @@ class _AlarmJob {
   /// false: no full-screen ring screen, just the sound and its notification.
   final bool fullScreen;
 
-  /// When to stop it (see [Scheduler.azkarMaxPlay]); null: stopped by her answer.
-  final DateTime? stopAt;
+  /// Longest it may ring before a background job stops it.
+  final Duration cap;
+
+  /// Text reminder posted instead when it can't play for long before the next
+  /// alarm (azkar); null: it always rings, if need be stopped just before.
+  final _NoteJob? instead;
+
+  /// When the background job stops it; set by [Scheduler._fitStops].
+  late DateTime stopAt;
 
   AlarmSettings toSettings() => AlarmSettings(
         id: id,
@@ -92,9 +100,14 @@ class Scheduler {
   static const qiyamAskDelay = Duration(minutes: 3);
 
   /// alarm 4.x rings one alarm at a time: it drops any alarm due while another
-  /// is ringing, and a finished, unstopped recording still counts as ringing.
-  /// So azkar recordings are stopped after this long (bundled ones are ~21
-  /// min), or a minute before the next alarm, whichever comes first.
+  /// is ringing, and a finished, unstopped sound still counts as ringing. So a
+  /// background job stops every alarm after its cap, or a minute before the
+  /// next alarm, whichever comes first.
+  static const medMaxRing = Duration(minutes: 2);
+  static const adhanMaxRing = Duration(minutes: 10);
+  static const qiyamMaxRing = Duration(minutes: 15);
+
+  /// Bundled azkar recordings are ~21 min.
   static const azkarMaxPlay = Duration(minutes: 25);
 
   /// Notification payload / ringing-screen info for a tracked item.
@@ -137,6 +150,8 @@ class Scheduler {
     // (e.g. before the first sign-in succeeded) still reach the son.
     final yesterday = await Storage.day(dateKey(addDays(today, -1)));
     if (yesterday != null) await Sync.pushDay(yesterday);
+
+    _fitStops(alarms, notes);
 
     await _apply(alarms, notes, now);
     await Storage.pruneDays(addDays(today, -35));
@@ -229,7 +244,8 @@ class Scheduler {
         final at = start.add(medRepeatGap * n);
         if (!at.isAfter(now)) continue;
         alarms.add(_AlarmJob(Ids.medAlarm(date, item.key, n), at,
-            sounds[SoundCategory.med]!, 'معاد الدوا', item.title, info));
+            sounds[SoundCategory.med]!, 'معاد الدوا', item.title, info,
+            cap: medMaxRing));
         notes.add(_NoteJob(Ids.medNote(date, item.key, n), at, 'معاد الدوا',
             'خدتي ${item.title}؟', NoteKind.med, info));
       }
@@ -240,7 +256,7 @@ class Scheduler {
       if (item.time.isAfter(now)) {
         alarms.add(_AlarmJob(Ids.adhan(date, item.key), item.time,
             sounds[SoundCategory.adhan]!, 'أذان ${item.title}', 'حان الآن موعد صلاة ${item.title}', info,
-            volume: 0.8));
+            cap: adhanMaxRing, volume: 0.8));
       }
       var at = item.time.add(prayerAskDelay);
       for (var n = 0; n < Ids.maxPrayerAsks && !at.isAfter(item.deadline); n++) {
@@ -258,7 +274,7 @@ class Scheduler {
       if (qiyam.time.isAfter(now)) {
         alarms.add(_AlarmJob(Ids.qiyamAlarm(date), qiyam.time, sounds[SoundCategory.alarm]!,
             'قيام الليل', 'قومي يا أمي، ربنا يتقبّل', info,
-            loop: true, volume: 1.0, fadeSeconds: 30));
+            cap: qiyamMaxRing, loop: true, volume: 1.0, fadeSeconds: 30));
       }
       final ask = qiyam.time.add(qiyamAskDelay);
       if (ask.isAfter(now)) {
@@ -272,21 +288,19 @@ class Scheduler {
       // The recording plays without the ring screen or a question; a text
       // notification instead when audio is off or another alarm is too close.
       void azkar(bool isMorning, DateTime at, SoundCategory c, String title) {
-        final body = 'وقت $title، ربنا يحفظك';
+        final note = _NoteJob(
+            Ids.azkar(date, isMorning), at, title, 'وقت $title، ربنا يحفظك', NoteKind.reminder);
         if (s.azkarAudio && at.isAfter(now)) {
-          var stopAt = at.add(azkarMaxPlay);
-          for (final a in alarms) {
-            final before = a.at.subtract(const Duration(minutes: 1));
-            if (!a.at.isBefore(at) && before.isBefore(stopAt)) stopAt = before;
-          }
-          if (stopAt.difference(at) >= const Duration(minutes: 2)) {
-            alarms.add(_AlarmJob(Ids.azkarAlarm(date, isMorning), at, sounds[c]!, title, body,
-                null,
-                volume: 0.8, vibrate: false, fullScreen: false, stopAt: stopAt));
-            return;
-          }
+          alarms.add(_AlarmJob(Ids.azkarAlarm(date, isMorning), at, sounds[c]!, title,
+              note.body, null,
+              cap: azkarMaxPlay,
+              volume: 0.8,
+              vibrate: false,
+              fullScreen: false,
+              instead: note));
+        } else {
+          notes.add(note);
         }
-        notes.add(_NoteJob(Ids.azkar(date, isMorning), at, title, body, NoteKind.reminder));
       }
 
       azkar(true, pd.fajr.add(delay), SoundCategory.azkarMorning, 'أذكار الصباح');
@@ -309,6 +323,34 @@ class Scheduler {
     }
   }
 
+  /// Sets each alarm's stop time: its cap, or a minute before the next alarm
+  /// (30 s before when they are under two minutes apart). An alarm with an
+  /// [_AlarmJob.instead] reminder that would play under two minutes becomes
+  /// that reminder.
+  static void _fitStops(List<_AlarmJob> alarms, List<_NoteJob> notes) {
+    alarms.sort((a, b) => a.at.compareTo(b.at));
+    DateTime? next; // start of the next alarm that is kept
+    for (final a in alarms.reversed.toList()) {
+      var stop = a.at.add(a.cap);
+      final n = next;
+      if (n != null && n.isAfter(a.at)) {
+        final beforeNext = n.subtract(const Duration(minutes: 1));
+        if (beforeNext.isBefore(stop)) stop = beforeNext;
+      }
+      final window = stop.difference(a.at);
+      final instead = a.instead;
+      if (instead != null && window < const Duration(minutes: 2)) {
+        alarms.remove(a);
+        notes.add(instead);
+        continue;
+      }
+      // Only possible with a next alarm, as every cap is at least 2 minutes.
+      if (window < const Duration(minutes: 1)) stop = n!.subtract(const Duration(seconds: 30));
+      a.stopAt = stop;
+      next = a.at;
+    }
+  }
+
   static Future<void> _apply(List<_AlarmJob> alarms, List<_NoteJob> notes, DateTime now) async {
     final wantedAlarms = {for (final a in alarms) a.id};
     final staleBefore = now.subtract(const Duration(minutes: 90));
@@ -317,16 +359,14 @@ class Scheduler {
       final stale = a.dateTime.isBefore(staleBefore);
       if (obsolete || stale) {
         await Alarm.stop(a.id);
-        if (!a.androidFullScreenIntent) await AndroidAlarmManager.cancel(a.id);
+        await AndroidAlarmManager.cancel(a.id); // its stop job
       }
     }
     for (final a in alarms) {
       await Alarm.set(alarmSettings: a.toSettings());
-      final stopAt = a.stopAt;
-      if (stopAt != null) {
-        await AndroidAlarmManager.oneShotAt(stopAt, a.id, stopPlayedAlarm,
-            exact: true, wakeup: true, allowWhileIdle: true, rescheduleOnReboot: true);
-      }
+      // Same id as the alarm, so a reschedule replaces its stop job.
+      await AndroidAlarmManager.oneShotAt(a.stopAt, a.id, stopPlayedAlarm,
+          exact: true, wakeup: true, allowWhileIdle: true, rescheduleOnReboot: true);
     }
 
     // Keep info for alarms still alive (e.g. ringing now) plus the new ones.

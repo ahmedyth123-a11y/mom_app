@@ -72,8 +72,8 @@ Future<void> maintenanceCallback() async {
   await Scheduler.rescheduleAll();
 }
 
-/// Ends a play-only alarm (azkar recording) at its scheduled stop time, so it
-/// stops blocking later alarms (see [Scheduler.azkarMaxPlay]).
+/// Ends an alarm at its scheduled stop time so it stops blocking later alarms
+/// (see [Scheduler.medMaxRing]); does nothing if it was already stopped.
 @pragma('vm:entry-point')
 Future<void> stopPlayedAlarm(int id) async {
   await ensureServices();
