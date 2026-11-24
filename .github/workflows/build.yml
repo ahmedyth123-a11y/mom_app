@@ -35,11 +35,6 @@ jobs:
           flutter build apk --release
           cp build/app/outputs/flutter-apk/app-release.apk mom_app.apk
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mom_app-apk
-          path: mom_app.apk
-
       - name: Publish to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
