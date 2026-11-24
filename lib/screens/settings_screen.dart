@@ -133,10 +133,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SectionCard(
                   title: 'التنبيهات',
                   icon: Icons.notifications_active,
-                  child: Column(children: [
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     _switch('تنبيه الأدوية', s.meds, (s, v) => s.meds = v),
                     _switch('الأذان وسؤال الصلاة', s.prayers, (s, v) => s.prayers = v),
                     _switch('أذكار الصباح والمسا', s.azkar, (s, v) => s.azkar = v),
+                    if (s.azkar) ...[
+                      _switch('تشغيل الأذكار بالصوت', s.azkarAudio, (s, v) => s.azkarAudio = v),
+                      if (s.azkarAudio) ...[
+                        _sound('صوت أذكار الصباح', SoundCategory.azkarMorning),
+                        _sound('صوت أذكار المساء', SoundCategory.azkarEvening),
+                      ],
+                    ],
                     _switch('تذكير الصيام (الاتنين والخميس والأيام البيض)', s.fasting,
                         (s, v) => s.fasting = v),
                   ]),

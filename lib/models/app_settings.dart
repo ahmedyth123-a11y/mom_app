@@ -6,18 +6,24 @@ enum SoundCategory {
   adhan('default_adhan.wav', 'جرس هادي (بدّله بأذان من التليفون)'),
   alarm('default_rising.wav', 'لحن هادي متصاعد'),
   med('default_chime.wav', 'جرس لطيف'),
-  tasbeeh(null, null);
+  tasbeeh(null, null),
+  azkarMorning(null, null, dir: 'azkar_morning'),
+  azkarEvening(null, null, dir: 'azkar_evening');
 
-  const SoundCategory(this._generated, this.generatedLabel);
+  const SoundCategory(this._generated, this.generatedLabel, {String? dir}) : _dir = dir;
 
   final String? _generated;
+
+  /// Asset folder name when it differs from the enum name.
+  final String? _dir;
 
   /// Friendly name of the generated fallback sound.
   final String? generatedLabel;
 
-  String get folder => 'assets/sounds/$name/';
+  String get folder => 'assets/sounds/${_dir ?? name}/';
 
-  /// Generated copyright-free fallback (none for tasbeeh, which uses TTS).
+  /// Generated copyright-free fallback (none for tasbeeh, which uses TTS, nor
+  /// for azkar, which always ship a main_ recording).
   String? get generatedPath => _generated == null ? null : '$folder$_generated';
 }
 
@@ -32,6 +38,9 @@ class AppSettings {
   bool meds = true;
   bool prayers = true;
   bool azkar = true;
+
+  /// Azkar times play the chosen recording; false: a text notification.
+  bool azkarAudio = true;
   bool fasting = true;
 
   bool qiyam = false;
@@ -59,6 +68,7 @@ class AppSettings {
         'meds': meds,
         'prayers': prayers,
         'azkar': azkar,
+        'azkarAudio': azkarAudio,
         'fasting': fasting,
         'qiyam': qiyam,
         'qiyamAuto': qiyamAuto,
@@ -83,6 +93,7 @@ class AppSettings {
     s.meds = j['meds'] as bool? ?? s.meds;
     s.prayers = j['prayers'] as bool? ?? s.prayers;
     s.azkar = j['azkar'] as bool? ?? s.azkar;
+    s.azkarAudio = j['azkarAudio'] as bool? ?? s.azkarAudio;
     s.fasting = j['fasting'] as bool? ?? s.fasting;
     s.qiyam = j['qiyam'] as bool? ?? s.qiyam;
     s.qiyamAuto = j['qiyamAuto'] as bool? ?? s.qiyamAuto;

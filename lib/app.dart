@@ -77,7 +77,7 @@ class _MomAppState extends State<MomApp> with WidgetsBindingObserver {
     for (final a in await Alarm.getAlarms()) {
       final recent = a.dateTime.isBefore(now) &&
           now.difference(a.dateTime) < const Duration(minutes: 30);
-      if (recent && await Alarm.isRinging(a.id)) {
+      if (recent && a.androidFullScreenIntent && await Alarm.isRinging(a.id)) {
         unawaited(_showRing(a));
         return;
       }
@@ -97,8 +97,10 @@ class _MomAppState extends State<MomApp> with WidgetsBindingObserver {
     if (context != null) askQuestion(context, payload);
   }
 
+  /// Alarms without a full-screen intent (azkar recordings) just play: no
+  /// ring screen, no question.
   Future<void> _showRing(AlarmSettings alarm) async {
-    if (_shownAlarm == alarm.id) return;
+    if (!alarm.androidFullScreenIntent || _shownAlarm == alarm.id) return;
     _shownAlarm = alarm.id;
     final info = (await Storage.alarmIndex())[alarm.id];
     await navigatorKey.currentState?.push(MaterialPageRoute<void>(

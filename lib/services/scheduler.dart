@@ -16,17 +16,27 @@ import 'sync.dart';
 
 class _AlarmJob {
   _AlarmJob(this.id, this.at, this.sound, this.title, this.body, this.payload,
-      {this.loop = false, this.volume = 0.9, this.fadeSeconds = 0});
+      {this.loop = false,
+      this.volume = 0.9,
+      this.fadeSeconds = 0,
+      this.vibrate = true,
+      this.fullScreen = true});
 
   final int id;
   final DateTime at;
   final String sound;
   final String title;
   final String body;
-  final Map<String, dynamic> payload;
+
+  /// Ringing-screen info; null for alarms that are only played (azkar).
+  final Map<String, dynamic>? payload;
   final bool loop;
   final double volume;
   final double fadeSeconds;
+  final bool vibrate;
+
+  /// false: no full-screen ring screen, just the sound and its notification.
+  final bool fullScreen;
 
   AlarmSettings toSettings() => AlarmSettings(
         id: id,
@@ -34,11 +44,11 @@ class _AlarmJob {
         // alarm plays 'assets/...' from the APK and an absolute path from disk.
         assetAudioPath: sound,
         loopAudio: loop,
-        vibrate: true,
+        vibrate: vibrate,
         volume: volume,
         fadeDuration: fadeSeconds,
         warningNotificationOnKill: false,
-        androidFullScreenIntent: true,
+        androidFullScreenIntent: fullScreen,
         notificationSettings: NotificationSettings(
           title: title,
           body: body,
@@ -95,7 +105,7 @@ class Scheduler {
     final meds = await Storage.meds();
     final table = await PrayerService.table();
     final sounds = {
-      for (final c in [SoundCategory.adhan, SoundCategory.alarm, SoundCategory.med])
+      for (final c in SoundCategory.values.where((c) => c != SoundCategory.tasbeeh))
         c: await Sounds.resolve(c, settings.sounds[c]),
     };
     final now = DateTime.now();
@@ -247,10 +257,25 @@ class Scheduler {
 
     if (s.azkar) {
       const delay = Duration(minutes: 30);
-      notes.add(_NoteJob(Ids.azkar(date, true), pd.fajr.add(delay), 'أذكار الصباح',
-          'وقت أذكار الصباح، ربنا يحفظك', NoteKind.reminder));
-      notes.add(_NoteJob(Ids.azkar(date, false), pd.asr.add(delay), 'أذكار المسا',
-          'وقت أذكار المسا، ربنا يحفظك', NoteKind.reminder));
+      final morning = pd.fajr.add(delay);
+      final evening = pd.asr.add(delay);
+      if (s.azkarAudio) {
+        // Played once like the adhan, without the ring screen or a question.
+        void play(bool isMorning, DateTime at, SoundCategory c, String title) {
+          if (!at.isAfter(now)) return;
+          alarms.add(_AlarmJob(Ids.azkarAlarm(date, isMorning), at, sounds[c]!, title,
+              'وقت $title، ربنا يحفظك', null,
+              volume: 0.8, vibrate: false, fullScreen: false));
+        }
+
+        play(true, morning, SoundCategory.azkarMorning, 'أذكار الصباح');
+        play(false, evening, SoundCategory.azkarEvening, 'أذكار المساء');
+      } else {
+        notes.add(_NoteJob(Ids.azkar(date, true), morning, 'أذكار الصباح',
+            'وقت أذكار الصباح، ربنا يحفظك', NoteKind.reminder));
+        notes.add(_NoteJob(Ids.azkar(date, false), evening, 'أذكار المسا',
+            'وقت أذكار المسا، ربنا يحفظك', NoteKind.reminder));
+      }
     }
 
     if (s.fasting) {
@@ -286,7 +311,8 @@ class Scheduler {
     final index = await Storage.alarmIndex();
     index.removeWhere((id, _) => !alive.contains(id));
     for (final a in alarms) {
-      index[a.id] = a.payload;
+      final payload = a.payload;
+      if (payload != null) index[a.id] = payload;
     }
     await Storage.saveAlarmIndex(index);
 

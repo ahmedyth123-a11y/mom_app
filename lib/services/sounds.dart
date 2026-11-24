@@ -64,10 +64,18 @@ class Sounds {
   static Future<bool> useTasbeehRecordings(AppSettings s) async =>
       s.useTasbeehRecordings(bundled: (await bundled(SoundCategory.tasbeeh)).isNotEmpty);
 
+  /// Friendly names of bundled files whose file name isn't readable Arabic.
+  static const _bundledLabels = {
+    'assets/sounds/azkar_morning/main_azkar_morning.mp3': 'أذكار الصباح',
+    'assets/sounds/azkar_evening/main_azkar_evening.mp3': 'أذكار المساء',
+  };
+
   static String label(String path) {
     for (final c in SoundCategory.values) {
       if (c.generatedPath == path) return c.generatedLabel!;
     }
+    final named = _bundledLabels[path];
+    if (named != null) return named;
     return _fileName(path)
         .replaceFirst(RegExp(r'^main_'), '')
         .replaceFirst(RegExp(r'\.[^.]+$'), '')

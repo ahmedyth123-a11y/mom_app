@@ -33,3 +33,5 @@ flutter:
     - assets/sounds/alarm/
     - assets/sounds/med/
     - assets/sounds/tasbeeh/
+    - assets/sounds/azkar_morning/
+    - assets/sounds/azkar_evening/

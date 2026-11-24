@@ -11,6 +11,7 @@ class Ids {
   static int qiyamAlarm(String date) => _hash('qA|$date');
   static int qiyamNote(String date) => _hash('qN|$date');
   static int azkar(String date, bool morning) => _hash('az|$date|$morning');
+  static int azkarAlarm(String date, bool morning) => _hash('azA|$date|$morning');
   static int fasting(String date) => _hash('fa|$date');
   static final tasbeeh = _hash('tasbeeh');
   static int son(String key) => _hash('son|$key');
