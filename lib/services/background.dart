@@ -1,3 +1,4 @@
+import 'package:alarm/alarm.dart';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
 import '../models/app_settings.dart';
@@ -69,6 +70,14 @@ Future<void> maintenanceCallback() async {
   await ensureServices();
   await PrayerService.refresh();
   await Scheduler.rescheduleAll();
+}
+
+/// Ends a play-only alarm (azkar recording) at its scheduled stop time, so it
+/// stops blocking later alarms (see [Scheduler.azkarMaxPlay]).
+@pragma('vm:entry-point')
+Future<void> stopPlayedAlarm(int id) async {
+  await ensureServices();
+  if (await Alarm.isRinging(id)) await Alarm.stop(id);
 }
 
 @pragma('vm:entry-point')

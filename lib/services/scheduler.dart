@@ -1,12 +1,14 @@
 import 'dart:convert';
 
 import 'package:alarm/alarm.dart';
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 
 import '../models/app_settings.dart';
 import '../models/day_record.dart';
 import '../models/medication.dart';
 import '../models/prayer_day.dart';
 import '../utils.dart';
+import 'background.dart';
 import 'ids.dart';
 import 'notifications.dart';
 import 'prayer_service.dart';
@@ -20,7 +22,8 @@ class _AlarmJob {
       this.volume = 0.9,
       this.fadeSeconds = 0,
       this.vibrate = true,
-      this.fullScreen = true});
+      this.fullScreen = true,
+      this.stopAt});
 
   final int id;
   final DateTime at;
@@ -37,6 +40,9 @@ class _AlarmJob {
 
   /// false: no full-screen ring screen, just the sound and its notification.
   final bool fullScreen;
+
+  /// When to stop it (see [Scheduler.azkarMaxPlay]); null: stopped by her answer.
+  final DateTime? stopAt;
 
   AlarmSettings toSettings() => AlarmSettings(
         id: id,
@@ -84,6 +90,12 @@ class Scheduler {
   /// Answering "prayed" later than this after the adhan counts as late.
   static const prayerOnTime = Duration(minutes: 40);
   static const qiyamAskDelay = Duration(minutes: 3);
+
+  /// alarm 4.x rings one alarm at a time: it drops any alarm due while another
+  /// is ringing, and a finished, unstopped recording still counts as ringing.
+  /// So azkar recordings are stopped after this long (bundled ones are ~21
+  /// min), or a minute before the next alarm, whichever comes first.
+  static const azkarMaxPlay = Duration(minutes: 25);
 
   /// Notification payload / ringing-screen info for a tracked item.
   static Map<String, dynamic> payload(String type, String date, TrackedItem item) =>
@@ -257,25 +269,28 @@ class Scheduler {
 
     if (s.azkar) {
       const delay = Duration(minutes: 30);
-      final morning = pd.fajr.add(delay);
-      final evening = pd.asr.add(delay);
-      if (s.azkarAudio) {
-        // Played once like the adhan, without the ring screen or a question.
-        void play(bool isMorning, DateTime at, SoundCategory c, String title) {
-          if (!at.isAfter(now)) return;
-          alarms.add(_AlarmJob(Ids.azkarAlarm(date, isMorning), at, sounds[c]!, title,
-              'وقت $title، ربنا يحفظك', null,
-              volume: 0.8, vibrate: false, fullScreen: false));
+      // The recording plays without the ring screen or a question; a text
+      // notification instead when audio is off or another alarm is too close.
+      void azkar(bool isMorning, DateTime at, SoundCategory c, String title) {
+        final body = 'وقت $title، ربنا يحفظك';
+        if (s.azkarAudio && at.isAfter(now)) {
+          var stopAt = at.add(azkarMaxPlay);
+          for (final a in alarms) {
+            final before = a.at.subtract(const Duration(minutes: 1));
+            if (!a.at.isBefore(at) && before.isBefore(stopAt)) stopAt = before;
+          }
+          if (stopAt.difference(at) >= const Duration(minutes: 2)) {
+            alarms.add(_AlarmJob(Ids.azkarAlarm(date, isMorning), at, sounds[c]!, title, body,
+                null,
+                volume: 0.8, vibrate: false, fullScreen: false, stopAt: stopAt));
+            return;
+          }
         }
-
-        play(true, morning, SoundCategory.azkarMorning, 'أذكار الصباح');
-        play(false, evening, SoundCategory.azkarEvening, 'أذكار المساء');
-      } else {
-        notes.add(_NoteJob(Ids.azkar(date, true), morning, 'أذكار الصباح',
-            'وقت أذكار الصباح، ربنا يحفظك', NoteKind.reminder));
-        notes.add(_NoteJob(Ids.azkar(date, false), evening, 'أذكار المسا',
-            'وقت أذكار المسا، ربنا يحفظك', NoteKind.reminder));
+        notes.add(_NoteJob(Ids.azkar(date, isMorning), at, title, body, NoteKind.reminder));
       }
+
+      azkar(true, pd.fajr.add(delay), SoundCategory.azkarMorning, 'أذكار الصباح');
+      azkar(false, pd.asr.add(delay), SoundCategory.azkarEvening, 'أذكار المسا');
     }
 
     if (s.fasting) {
@@ -300,10 +315,18 @@ class Scheduler {
     for (final a in await Alarm.getAlarms()) {
       final obsolete = a.dateTime.isAfter(now) && !wantedAlarms.contains(a.id);
       final stale = a.dateTime.isBefore(staleBefore);
-      if (obsolete || stale) await Alarm.stop(a.id);
+      if (obsolete || stale) {
+        await Alarm.stop(a.id);
+        if (!a.androidFullScreenIntent) await AndroidAlarmManager.cancel(a.id);
+      }
     }
     for (final a in alarms) {
       await Alarm.set(alarmSettings: a.toSettings());
+      final stopAt = a.stopAt;
+      if (stopAt != null) {
+        await AndroidAlarmManager.oneShotAt(stopAt, a.id, stopPlayedAlarm,
+            exact: true, wakeup: true, allowWhileIdle: true, rescheduleOnReboot: true);
+      }
     }
 
     // Keep info for alarms still alive (e.g. ringing now) plus the new ones.
