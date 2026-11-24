@@ -1,27 +1,31 @@
 enum AppMode { mother, son }
 
-/// Sound folders under assets/sounds/. Every file in a folder is selectable.
+/// Sound folders: bundled files under assets/sounds/<name>/ plus files she
+/// added from the phone (see Sounds).
 enum SoundCategory {
-  adhan('default_adhan.wav'),
-  alarm('default_rising.wav'),
-  med('default_chime.wav');
+  adhan('default_adhan.wav', 'جرس هادي (بدّله بأذان من التليفون)'),
+  alarm('default_rising.wav', 'لحن هادي متصاعد'),
+  med('default_chime.wav', 'جرس لطيف'),
+  tasbeeh(null, null);
 
-  const SoundCategory(this._defaultFile);
+  const SoundCategory(this._generated, this.generatedLabel);
 
-  final String _defaultFile;
+  final String? _generated;
+
+  /// Friendly name of the generated fallback sound.
+  final String? generatedLabel;
 
   String get folder => 'assets/sounds/$name/';
 
-  /// Bundled copyright-free sound, used until she picks another.
-  String get defaultPath => '$folder$_defaultFile';
+  /// Generated copyright-free fallback (none for tasbeeh, which uses TTS).
+  String? get generatedPath => _generated == null ? null : '$folder$_generated';
 }
 
 /// Mother-phone preferences. Mutable: the settings screen edits then saves it.
 class AppSettings {
-  /// Asset paths of the chosen sounds (null = the bundled default).
-  String? adhanSound;
-  String? alarmSound;
-  String? medSound;
+  /// Chosen sound per category: an asset path or an absolute file path.
+  /// Missing = the bundled default (see Sounds.resolve).
+  final Map<SoundCategory, String> sounds = {};
 
   double fontScale = 1.0;
 
@@ -41,31 +45,16 @@ class AppSettings {
   int tasbeehStart = 8 * 60;
   int tasbeehEnd = 22 * 60;
 
+  /// true: play recordings; false: TTS; null: recordings only if some are
+  /// bundled in the APK.
+  bool? tasbeehRecordings;
+
   AppSettings();
 
-  String soundPath(SoundCategory c) =>
-      switch (c) {
-        SoundCategory.adhan => adhanSound,
-        SoundCategory.alarm => alarmSound,
-        SoundCategory.med => medSound,
-      } ??
-      c.defaultPath;
-
-  void setSound(SoundCategory c, String path) {
-    switch (c) {
-      case SoundCategory.adhan:
-        adhanSound = path;
-      case SoundCategory.alarm:
-        alarmSound = path;
-      case SoundCategory.med:
-        medSound = path;
-    }
-  }
+  bool useTasbeehRecordings({required bool bundled}) => tasbeehRecordings ?? bundled;
 
   Map<String, dynamic> toJson() => {
-        'adhanSound': adhanSound,
-        'alarmSound': alarmSound,
-        'medSound': medSound,
+        for (final e in sounds.entries) '${e.key.name}Sound': e.value,
         'fontScale': fontScale,
         'meds': meds,
         'prayers': prayers,
@@ -78,13 +67,18 @@ class AppSettings {
         'tasbeehInterval': tasbeehInterval,
         'tasbeehStart': tasbeehStart,
         'tasbeehEnd': tasbeehEnd,
+        'tasbeehRecordings': tasbeehRecordings,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> j) {
     final s = AppSettings();
-    s.adhanSound = j['adhanSound'] as String?;
-    s.alarmSound = j['alarmSound'] as String?;
-    s.medSound = j['medSound'] as String?;
+    // Older versions stored the generated default as an explicit choice; drop
+    // it so a bundled main_* default applies (that format lacks this key).
+    final legacy = !j.containsKey('tasbeehRecordings');
+    for (final c in SoundCategory.values) {
+      final path = j['${c.name}Sound'] as String?;
+      if (path != null && !(legacy && path == c.generatedPath)) s.sounds[c] = path;
+    }
     s.fontScale = (j['fontScale'] as num?)?.toDouble() ?? s.fontScale;
     s.meds = j['meds'] as bool? ?? s.meds;
     s.prayers = j['prayers'] as bool? ?? s.prayers;
@@ -97,6 +91,7 @@ class AppSettings {
     s.tasbeehInterval = j['tasbeehInterval'] as int? ?? s.tasbeehInterval;
     s.tasbeehStart = j['tasbeehStart'] as int? ?? s.tasbeehStart;
     s.tasbeehEnd = j['tasbeehEnd'] as int? ?? s.tasbeehEnd;
+    s.tasbeehRecordings = j['tasbeehRecordings'] as bool?;
     return s;
   }
 }

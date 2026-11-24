@@ -79,9 +79,13 @@ Future<void> tasbeehCallback() async {
   final now = DateTime.now();
   final minutes = now.hour * 60 + now.minute;
   if (!s.tasbeeh || minutes < s.tasbeehStart || minutes > s.tasbeehEnd) return;
-  final phrase = tasbeehPhrases[await Storage.nextTasbeehIndex() % tasbeehPhrases.length];
-  if (!await speakArabic(phrase)) {
-    await Notifs.show(id: Ids.tasbeeh, title: 'ذكر', body: phrase, kind: NoteKind.reminder);
+  final index = await Storage.nextTasbeehIndex();
+  if (!await playTasbeeh(s, index)) {
+    await Notifs.show(
+        id: Ids.tasbeeh,
+        title: 'ذكر',
+        body: tasbeehPhrases[index % tasbeehPhrases.length],
+        kind: NoteKind.reminder);
   }
 }
 

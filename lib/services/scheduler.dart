@@ -10,6 +10,7 @@ import '../utils.dart';
 import 'ids.dart';
 import 'notifications.dart';
 import 'prayer_service.dart';
+import 'sounds.dart';
 import 'storage.dart';
 import 'sync.dart';
 
@@ -30,6 +31,7 @@ class _AlarmJob {
   AlarmSettings toSettings() => AlarmSettings(
         id: id,
         dateTime: at,
+        // alarm plays 'assets/...' from the APK and an absolute path from disk.
         assetAudioPath: sound,
         loopAudio: loop,
         vibrate: true,
@@ -92,6 +94,10 @@ class Scheduler {
     final settings = await Storage.settings();
     final meds = await Storage.meds();
     final table = await PrayerService.table();
+    final sounds = {
+      for (final c in [SoundCategory.adhan, SoundCategory.alarm, SoundCategory.med])
+        c: await Sounds.resolve(c, settings.sounds[c]),
+    };
     final now = DateTime.now();
     final today = dayStart(now);
 
@@ -103,7 +109,7 @@ class Scheduler {
       final record = _buildRecord(await Storage.day(date), day, settings, meds, table, now);
       await Storage.saveDay(record);
       await Sync.pushDay(record);
-      _plan(record, day, settings, table, now, alarms, notes);
+      _plan(record, day, settings, sounds, table, now, alarms, notes);
     }
     // Re-send yesterday too: answers given while sync was unavailable
     // (e.g. before the first sign-in succeeded) still reach the son.
@@ -188,8 +194,9 @@ class Scheduler {
     };
   }
 
-  static void _plan(DayRecord record, DateTime day, AppSettings s, PrayerTable table,
-      DateTime now, List<_AlarmJob> alarms, List<_NoteJob> notes) {
+  static void _plan(DayRecord record, DateTime day, AppSettings s,
+      Map<SoundCategory, String> sounds, PrayerTable table, DateTime now,
+      List<_AlarmJob> alarms, List<_NoteJob> notes) {
     final date = record.date;
     final pd = table.day(day);
 
@@ -200,7 +207,7 @@ class Scheduler {
         final at = start.add(medRepeatGap * n);
         if (!at.isAfter(now)) continue;
         alarms.add(_AlarmJob(Ids.medAlarm(date, item.key, n), at,
-            s.soundPath(SoundCategory.med), 'معاد الدوا', item.title, info));
+            sounds[SoundCategory.med]!, 'معاد الدوا', item.title, info));
         notes.add(_NoteJob(Ids.medNote(date, item.key, n), at, 'معاد الدوا',
             'خدتي ${item.title}؟', NoteKind.med, info));
       }
@@ -210,7 +217,7 @@ class Scheduler {
       final info = payload('prayer', date, item);
       if (item.time.isAfter(now)) {
         alarms.add(_AlarmJob(Ids.adhan(date, item.key), item.time,
-            s.soundPath(SoundCategory.adhan), 'أذان ${item.title}', 'حان الآن موعد صلاة ${item.title}', info,
+            sounds[SoundCategory.adhan]!, 'أذان ${item.title}', 'حان الآن موعد صلاة ${item.title}', info,
             volume: 0.8));
       }
       var at = item.time.add(prayerAskDelay);
@@ -227,7 +234,7 @@ class Scheduler {
     if (qiyam != null && !qiyam.answered) {
       final info = payload('qiyam', date, qiyam);
       if (qiyam.time.isAfter(now)) {
-        alarms.add(_AlarmJob(Ids.qiyamAlarm(date), qiyam.time, s.soundPath(SoundCategory.alarm),
+        alarms.add(_AlarmJob(Ids.qiyamAlarm(date), qiyam.time, sounds[SoundCategory.alarm]!,
             'قيام الليل', 'قومي يا أمي، ربنا يتقبّل', info,
             loop: true, volume: 1.0, fadeSeconds: 30));
       }

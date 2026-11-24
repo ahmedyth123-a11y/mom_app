@@ -4,6 +4,7 @@ import '../firebase_config.dart';
 import '../models/app_settings.dart';
 import '../services/background.dart';
 import '../services/scheduler.dart';
+import '../services/sounds.dart';
 import '../services/storage.dart';
 import '../services/tts.dart';
 import '../theme.dart';
@@ -22,6 +23,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   AppSettings? _settings;
   String? _code;
+  bool _bundledTasbeeh = false;
 
   @override
   void initState() {
@@ -32,10 +34,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _load() async {
     final s = await Storage.settings();
     final code = await Storage.pairCode();
+    final bundledTasbeeh = (await Sounds.bundled(SoundCategory.tasbeeh)).isNotEmpty;
     if (mounted) {
       setState(() {
         _settings = s;
         _code = code;
+        _bundledTasbeeh = bundledTasbeeh;
       });
     }
   }
@@ -68,13 +72,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget _sound(String label, SoundCategory c) => SoundPicker(
         label: label,
         category: c,
-        value: _settings!.soundPath(c),
-        onChanged: (path) => _update((s) => s.setSound(c, path)),
+        value: _settings!.sounds[c],
+        onChanged: (path) => _update((s) {
+          if (path == null) {
+            s.sounds.remove(c);
+          } else {
+            s.sounds[c] = path;
+          }
+        }),
       );
 
   Future<void> _testTasbeeh() async {
-    final spoken = await speakArabic(tasbeehPhrases.first);
-    if (!spoken && mounted) {
+    final played = await playTasbeeh(_settings!, 0);
+    if (!played && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
           content: Text('مفيش صوت عربي على التليفون، التسبيح هيظهر كإشعار مكتوب')));
     }
@@ -94,7 +104,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 SectionCard(
                   title: 'الأصوات',
                   icon: Icons.music_note,
-                  child: Column(children: [
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    Text(
+                      'عشان تحط أذان الحرم: نزّل ملف الأذان على التليفون (أو ابعته على واتساب واحفظه)، وبعدين دوس ➕ إضافة صوت من التليفون.',
+                      style: theme.textTheme.bodyMedium
+                          ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                    ),
                     _sound('صوت الأذان', SoundCategory.adhan),
                     _sound('صوت منبّه القيام', SoundCategory.alarm),
                     _sound('صوت تنبيه الدوا', SoundCategory.med),
@@ -164,6 +179,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     _switch('التليفون يسبّح بصوت كل شوية', s.tasbeeh, (s, v) => s.tasbeeh = v),
                     if (s.tasbeeh) ...[
+                      Text('صوت التسبيح', style: theme.textTheme.titleMedium),
+                      RadioListTile<bool>(
+                        contentPadding: EdgeInsets.zero,
+                        value: false,
+                        groupValue: s.useTasbeehRecordings(bundled: _bundledTasbeeh),
+                        onChanged: (_) => _update((s) => s.tasbeehRecordings = false),
+                        title: const Text('صوت التليفون (قراءة آلية)'),
+                      ),
+                      RadioListTile<bool>(
+                        contentPadding: EdgeInsets.zero,
+                        value: true,
+                        groupValue: s.useTasbeehRecordings(bundled: _bundledTasbeeh),
+                        onChanged: (_) => _update((s) => s.tasbeehRecordings = true),
+                        title: const Text('تسجيلات صوتية (واحد ورا التاني)'),
+                      ),
+                      if (s.useTasbeehRecordings(bundled: _bundledTasbeeh))
+                        const SoundPicker(label: 'التسجيلات', category: SoundCategory.tasbeeh),
                       Row(children: [
                         const Text('كل'),
                         const SizedBox(width: 12),

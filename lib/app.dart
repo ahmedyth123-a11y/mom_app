@@ -10,7 +10,6 @@ import 'services/background.dart';
 import 'services/notifications.dart';
 import 'services/prayer_service.dart';
 import 'services/scheduler.dart';
-import 'services/sounds.dart';
 import 'services/storage.dart';
 import 'theme.dart';
 import 'widgets/question_dialog.dart';
@@ -20,7 +19,6 @@ final navigatorKey = GlobalKey<NavigatorState>();
 /// Brings everything up to date: prayer times, alarms, background jobs.
 Future<void> refreshAppData() async {
   if (await Storage.mode() == AppMode.mother) {
-    await Sounds.validate();
     await PrayerService.refresh();
     await Scheduler.rescheduleAll();
   }

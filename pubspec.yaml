@@ -20,13 +20,16 @@ dependencies:
   flutter_local_notifications: ^18.0.1
   flutter_tts: ^4.0.2
   http: ^1.2.2
+  path_provider: ^2.1.4
   shared_preferences: ^2.3.2
   timezone: '>=0.9.4 <0.11.0'
 
 flutter:
   uses-material-design: true
-  # Any file dropped into these folders is picked up automatically.
+  # Any audio file dropped into these folders is picked up automatically;
+  # a file named main_* is that category's default.
   assets:
     - assets/sounds/adhan/
     - assets/sounds/alarm/
     - assets/sounds/med/
+    - assets/sounds/tasbeeh/
